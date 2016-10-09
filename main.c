@@ -9,21 +9,19 @@
 
 using namespace std;
 
-const string files[] = {"VBMFX.csv","VGSIX.csv", "VGTSX.csv","VTSMX.csv"};
-const int numFiles = 4;
-const int daysSimulate = 365 * 4;
+const string files[] = {"VTI.csv", "VXUS.csv", "VBMFX.csv", "VGSIX.csv", "VGTSX.csv", "VTSMX.csv"};
+const int numFiles = 6;
+const int daysSimulate = 365 * 3;
 
 vector<string> lines[numFiles];
 float* values[numFiles];
 float* logs[numFiles];
-float* diffs[numFiles];
+float* lineVal[numFiles];
 int length[numFiles];
-float m[numFiles];
-float b[numFiles];
-int maxLength;
 int minLength;
 float totalValues[numFiles];
 float mixValues[numFiles];
+float mixSpent[numFiles];
 float maxValue;
 
 void readFiles() {
@@ -69,67 +67,44 @@ void calcLogs() {
   }
 }
 
-void calcSlopes(int daysAgo) {
+void calcLineVals(int daysAgo) {
   for (int i = 0; i < numFiles; i++) {
     float xsum = 0;
-    float ysum =0;
+    float ysum = 0;
     float xysum = 0;
     float x2 = 0;
     float y2 = 0;
-    int n = length[i] + 1 - daysAgo;
+    int n = length[i] - daysAgo;
     for (int j = daysAgo; j < length[i]; j++) {
-      float x = n - j;
+      float x = length[i] - j;
       float y = logs[i][j];
       xsum += x;
       ysum += y;
       xysum += x * y;
-      x2 += x * x;
-      y2 += y * y;
+      x2 += pow(x, 2);
+      y2 += pow(y, 2);
     }
-    m[i] = ((n * xysum) - (xsum * ysum)) /
+    float m = ((n * xysum) - (xsum * ysum)) /
       ((n * x2) - (xsum * xsum));
-    b[i] = ((x2 * ysum) - (xsum * xysum)) /
+    float b = ((x2 * ysum) - (xsum * xysum)) /
       ((n * x2) - (xsum * xsum));
-    //printf("y = %f x + %f\n", m[i], b[i]);
-  }
-}
-
-void slopeDiff(int daysAgo) {
-  for (int i = 0; i < numFiles; i++) {
-    if (length[i] > daysAgo) {
-      float y = m[i] * (length[i] + 1 - daysAgo) + b[i];
-      float diff = logs[i][daysAgo] - y;
-      diffs[i][daysAgo] = diff;
-      //printf ("Y: %f L: %f Diff: %f ", y, logs[i][daysAgo], diff);
-    } else {
-      diffs[i][daysAgo] = FLT_MAX;
-      printf ("INFINITY ");
-    }
+    float logEst = m * n + b;
+    lineVal[i][daysAgo] = pow(10, logEst);
+    //printf("Est%d: %f\n", i + 1, lineVal[i][daysAgo]);
   }
 }
 
 void calcDiffs() {
-  maxLength = 0;
   for (int i = 0; i < numFiles; i++) {
-    if (length[i] > maxLength) {
-      maxLength = length[i];
-    }
+    lineVal[i] = new float[length[i]];
   }
-  //printf("Max Length: %d\n", maxLength);
-  for (int i = 0; i < numFiles; i++) {
-    diffs[i] = new float[maxLength];
+  for (int j = 0; j < daysSimulate; j++) {
+    calcLineVals(j);
   }
-  minLength = 9999999;
-  for (int i = 0; i < numFiles; i++) {
-    if (length[i] < minLength) {
-      minLength = length[i];
-    }
-  }
-  //printf("Min Length: %d\n", minLength);
   for (int i = 0; i < numFiles; i++) {
     printf("Files: %s\n", files[i].c_str());
     printf("  Value: %f\n", values[i][0]);
-    printf("  Diff:  %f\n", diffs[i][0]);
+    printf("  EstVal:  %f\n", lineVal[i][0]);
   }
 }
 
@@ -148,22 +123,27 @@ void singleStocks() {
 
 void multiStocks() {
   for (int j = 0; j < daysSimulate; j++) {
-    calcSlopes(j);
-    slopeDiff(j);
-    float minDiff = diffs[0][j];
+    float mult = 1 / values[0][j];
+    
+    float min = mult * lineVal[0][j];
     int minIndex = 0;
     for (int i = 1; i < numFiles; i++) {
-      if (minDiff > diffs[i][j]) {
-	minDiff = diffs[i][j];
+      mult = 1 / values[i][j];
+      float est = mult * lineVal[i][j];
+      if (est < min) {
+	min = est;
 	minIndex = i;
       }
     }
     mixValues[minIndex] += 100 / values[minIndex][j];
+    mixSpent[minIndex] += 100;
   }
   maxValue = 0;
   for (int i = 0; i < numFiles; i++) {
-    float y = m[i] * (length[i] + 1) + b[i];
-    maxValue += mixValues[i] * pow(10.0, y);
+    float value = mixValues[i] * values[i][0];
+    maxValue += value;
+    printf("  Stock%d: $%f\n", i + 1, value);
+    printf("  Spent  : $%f\n", mixSpent[i]);
   }
   printf("Max   : %f\n", maxValue);
 }
@@ -172,8 +152,10 @@ int main() {
   readFiles();
   findValues();
   calcLogs();
-  calcSlopes(daysSimulate);
   calcDiffs();
   singleStocks();
   multiStocks();
+  float rate = 0.000428443;
+  float value = 100 * (pow(1 + rate, 1095)-1) / rate;
+  printf("Value: %f", value);
 }
